@@ -13,6 +13,9 @@ lrate_targ = .01
 targ_min = 1.0 
 movement_amp = 10
 input_amp = 4
+
+global learn_on = 1
+
 global acts_neg = 1
 
 global perturb = 1
@@ -304,13 +307,13 @@ scatter!(ax_network, reduce(vcat, pos_x), reduce(vcat,pos_y); markersize = 20, c
 
 ########
 ## interactive fig
-fig
+# fig
 
-##save video
-# frames = 1:3000
-# record(fig, "BraitenbergAgent.mp4", frames; framerate = 40) do i
-#     step!(abmobs, 1)
-# end
+#save video
+frames = 1:2000
+record(fig, "BraitenbergAgent_perturb2.mp4", frames; framerate = 40) do i
+    step!(abmobs, 1)
+end
 
 #output data
 ts_pos_ = DataFrame(ts_pos)
@@ -322,7 +325,7 @@ ts_eff_ = DataFrame(ts_eff)
 ts_hits_ = DataFrame(hits = ts_hits)
 
 using CSV
-fill = "_perturb"
+fill = "_perturb2"
 CSV.write("./WallAvoidance/Data/pos" * fill * ".csv", ts_pos_)
 CSV.write("./WallAvoidance/Data/spikes" * fill * ".csv", ts_spikes_)
 CSV.write("./WallAvoidance/Data/acts" * fill * ".csv", ts_acts_)

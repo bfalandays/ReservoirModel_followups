@@ -28,6 +28,7 @@ global ts_acts = []
 global ts_sens = []
 global ts_eff = []
 global ts_stim = []
+global save_data = false
 
 _Agent(id, pos, heading, sens_degrees, hits) = Agent(id, pos, :agent, pos[1] + pos[2]im, 0, heading, sens_degrees, ( agent_radius * ( cos(heading+deg2rad(30)) + sin(heading+deg2rad(30))im), agent_radius * ( cos(heading-deg2rad(30)) + sin(heading-deg2rad(30))im)), 0, hits)
 Stimulus(id, pos) = Agent(id, pos, :stim, pos[1] + pos[2]im, 1, 0, [], (0+0im,0+0im), 0, [0])
@@ -48,7 +49,11 @@ function move_stim(stim, agent, dx, dy,model)
     newPos = [stim.pos[1] + dx, stim.pos[2] + dy]
     
     s1 = Segment(Meshes.Point2(stim.pos),Meshes.Point2(newPos))
-    s2 = Segment(Meshes.Point2(agent.pos[1],agent.pos[2]-paddle_radius),Meshes.Point2(agent.pos[1],agent.pos[2]+paddle_radius))
+    s2 = Segment(Meshes.Point2(agent.pos[1],(agent.pos[2] - paddle_radius - ball_radius)),Meshes.Point2(agent.pos[1],(agent.pos[2] + paddle_radius + ball_radius)))
+
+    if save_data == true
+        push!(ts_hits, 0)
+    end
 
     res = s1 ∩ s2
     if !isnothing(res)
@@ -59,6 +64,9 @@ function move_stim(stim, agent, dx, dy,model)
         diff = dist₁ - dist₀
         newPos[1] += diff + 5
         dx *= -1
+        if save_data == true
+            ts_hits[end] = 1
+        end
         push!(model[1].hits, 1)
     end
     
@@ -78,7 +86,12 @@ function move_stim(stim, agent, dx, dy,model)
         global dx = -xSpeed
         global dy = StatsBase.sample([-ySpeed,ySpeed])  
 
+        if save_data == true
+            ts_hits[end] = -1
+        end
         push!(model[1].hits, 0)
+       
+
     elseif newPos[2] >= 495
         newPos[2] = 495
         dy *= -1
@@ -210,14 +223,16 @@ function model_step!(model)
     wmat[], targets = learning(learn_on,link_mat,spikes,prev_spikes, errors,wmat,targets)
     # model.weights = wmat
 
-    # #saving data
-    # push!(ts_spikes, Tuple(Int64(x) for x in spikes[]))
-    # push!(ts_acts, Tuple(Float64(x) for x in acts))
-    # push!(ts_pos, agent.pos)
+    #saving data
+    if save_data == true
+        push!(ts_spikes, Tuple(Int64(x) for x in spikes[]))
+        push!(ts_acts, Tuple(Float64(x) for x in acts))
+        push!(ts_pos, agent.pos)
 
-    # push!(ts_sens, Tuple(Float64(x) for x in input))
-    # push!(ts_eff, Tuple(Float64(x) for x in output_acts))
-    # push!(ts_stim, stim.pos)
+        push!(ts_sens, Tuple(Float64(x) for x in input))
+        push!(ts_eff, Tuple(Float64(x) for x in output_acts))
+        push!(ts_stim, stim.pos)
+    end
 
     dx, dy = move_stim(stim, agent,dx,dy,model)
 

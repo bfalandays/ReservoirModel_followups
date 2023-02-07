@@ -17,6 +17,15 @@ global acts_neg = 0
 global agent_radius = .5
 global stim_radius = 1
 
+global save_data = true
+
+global ts_heading = []
+global ts_spikes = []
+global ts_acts = []
+global ts_sens = []
+global ts_eff = []
+global ts_stim = []
+
 _Agent(id, pos, heading, sens_angles) = Agent(id, pos, :agent, pos[1] + pos[2]im, 0, heading, sens_angles, ( agent_radius * ( cos(heading+deg2rad(30)) + sin(heading+deg2rad(30))im), agent_radius * ( cos(heading-deg2rad(30)) + sin(heading-deg2rad(30))im)), 0)
 Stimulus(id, pos) = Agent(id, pos, :stim, pos[1] + pos[2]im, 1, 0, [], (0+0im,0+0im), 0)
 
@@ -167,6 +176,17 @@ function model_step!(model)
 
     wmat[], targets = learning(learn_on,link_mat,spikes,prev_spikes, errors,wmat,targets)
     # model.weights = wmat
+
+    #saving data
+    if save_data == true
+        push!(ts_spikes, Tuple(Int64(x) for x in spikes[]))
+        push!(ts_acts, Tuple(Float64(x) for x in acts))
+        push!(ts_heading, agent.heading)
+
+        push!(ts_sens, Tuple(Float64(x) for x in input))
+        push!(ts_eff, Tuple(Float64(x) for x in output_acts))
+        push!(ts_stim, deg2rad(stim.degree))
+    end
 
     move_stim(stim, direction,model)
     rotate_agent(output_acts, agent)

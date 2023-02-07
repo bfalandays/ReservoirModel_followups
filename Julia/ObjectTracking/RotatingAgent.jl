@@ -17,6 +17,8 @@ input_amp = .75
 stim_speed = 1
 global acts_neg = 1
 
+global save_data = true
+
 ####
 sens_degrees = vcat(sort(collect(range(start=-60,stop=60,step=4)).+30,rev=true), sort(collect(range(start=-60,stop=60,step=4)).-30,rev=true))
 sensColors=reduce(vcat,[repeat([:red],31), repeat([:blue], 31)])
@@ -135,12 +137,17 @@ params = Dict(
 fig, ax, abmobs = abmplot(model; 
     dummystep, model_step!,
     add_controls = true, enable_inspection = true,
-    adata, mdata, figure = (; resolution = (2400,1600)),
-    onstep=update_time_annotation
+    adata, mdata, figure = (; resolution = (2400,1600))
 )
 
 sensors_layout = fig[1,end+1] = GridLayout()
 acts_layout = fig[1,end+1] = GridLayout()
+
+text_layout = fig[2, end-1]
+ax_text = Axis(text_layout[1,1])
+GLMakie.xlims!(ax_text, (-1,1))
+GLMakie.ylims!(ax_text, (-1,1))
+
 network_layout = fig[3, end-2] = GridLayout()
 effectors_layout = fig[3,end-1] = GridLayout()
 weights_layout = fig[3,end] = GridLayout()
@@ -153,6 +160,8 @@ ylims!(ax_sensors, (0,1))
 ax_acts = Axis(acts_layout[1,1]; backgroundcolor = :lightgrey, title = "Reservoir Node Properties", ylabel = "Value", xticks = (1:3, ["meanActs","meanErrs", "meanTargs"]), xticklabelrotation = pi/8)
 xlims!(ax_acts, (0,4))
 ylims!(ax_acts, (-3,3))
+
+
 
 ax_network = Axis(network_layout[1,1]; title = "Reservoir Spikes")
 
@@ -225,6 +234,14 @@ _weights2 = @lift begin
     x[x .!= 0]
 end
 
+step_ = @lift begin
+    a = $(abmobs.adf)
+    b = last(a)
+    string(b.step[1])
+end
+
+text!(ax_text, step_, position=(0,0),align = (:center, :center),fontsize=100)
+
 ####
 poly!(ax, Circle(GLMakie.Point2f(1.5, 1.5), agent_radius), color = :pink)
 
@@ -271,9 +288,26 @@ lines!(ax_network, reduce(vcat,edge_x), reduce(vcat,edge_y), color=(:black, .1))
 scatter!(ax_network, reduce(vcat, pos_x), reduce(vcat,pos_y); markersize = 20, color = colors)
 
 ########
-fig
+#fig
 
-# frames = 1:plotIter
-# record(fig, "RotatingAgent.mp4", frames; framerate = 40) do i
-#     step!(abmobs, 1)
-# end
+frames = 1:plotIter
+record(fig, "RotatingAgent2.mp4", frames; framerate = 40) do i
+    step!(abmobs, 1)
+end
+
+#output data
+ts_heading_ = DataFrame(ts_heading = ts_heading)
+ts_spikes_ = DataFrame(ts_spikes)
+ts_acts_ = DataFrame(ts_acts)
+ts_sens_ = DataFrame(ts_sens)
+ts_eff_ = DataFrame(ts_eff)
+ts_stim_ = DataFrame(heading = ts_stim)
+
+using CSV
+fill = ""
+CSV.write("./ObjectTracking/Data/heading" * fill * ".csv", ts_heading_)
+CSV.write("./ObjectTracking/Data/spikes" * fill * ".csv", ts_spikes_)
+CSV.write("./ObjectTracking/Data/acts" * fill * ".csv", ts_acts_)
+CSV.write("./ObjectTracking/Data/sens" * fill * ".csv", ts_sens_)
+CSV.write("./ObjectTracking/Data/eff" * fill * ".csv", ts_eff_)
+CSV.write("./ObjectTracking/Data/stim" * fill * ".csv", ts_stim_)

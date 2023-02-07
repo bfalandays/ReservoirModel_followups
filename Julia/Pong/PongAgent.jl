@@ -21,6 +21,10 @@ global paddle_radius = 50
 global stim_speed = 5
 global acts_neg = 1
 
+global save_data = true
+
+global learn_on = true
+
 ####
 
 global sens_degrees = collect(-90:4:90)
@@ -56,15 +60,6 @@ for row in range(1,size(link_mat)[1])
 end
         
 global wmat= Observable(zeros((nnodes,nnodes)))
-# for row in range(1,size(wmat[])[1])
-#     for col in range(1,size(wmat[])[2])
-#         if link_mat[row,col] == 1
-#             wmat[][row,col] =  rand(Normal(input_amp,.1))
-#         elseif link_mat[row,col] == -1
-#             wmat[][row,col] =  rand(Normal(-input_amp,.1))
-#         end
-#     end
-# end
 for row in range(1,size(wmat[])[1])
     for col in range(1,size(wmat[])[2])
         if link_mat[row,col] == 1
@@ -151,7 +146,7 @@ add_agent_pos!(
 # # using Plots
 # # Plots.plot(cumsum(hits))
 # mean(hits)
-# sum(hits)/(length(hits)-sum(hits))
+# #sum(hits)/(length(hits)-sum(hits))
 
 # #output data
 # ts_pos_ = DataFrame(ts_pos)
@@ -160,6 +155,7 @@ add_agent_pos!(
 # ts_sens_ = DataFrame(ts_sens)
 # ts_eff_ = DataFrame(ts_eff)
 # ts_stim_ = DataFrame(ts_stim)
+# ts_hits_ = DataFrame(ts_hits=ts_hits)
 
 # using CSV
 # fill = ""
@@ -169,6 +165,8 @@ add_agent_pos!(
 # CSV.write("./Pong/Data/sens" * fill * ".csv", ts_sens_)
 # CSV.write("./Pong/Data/eff" * fill * ".csv", ts_eff_)
 # CSV.write("./Pong/Data/stim" * fill * ".csv", ts_stim_)
+# CSV.write("./Pong/Data/hits" * fill * ".csv", ts_hits_)
+
 
 # ######### reset
 
@@ -385,9 +383,20 @@ lines!(ax_network, reduce(vcat,edge_x), reduce(vcat,edge_y), color=(:black, .1))
 GLMakie.scatter!(ax_network, reduce(vcat, pos_x), reduce(vcat,pos_y); markersize = 20, color = colors)
 
 ######
-# fig
+fig
 
-frames = 1:10000
-record(fig, "PongAgent.mp4", frames; framerate = 40) do i
-    step!(abmobs, 1)
-end
+# frames = 1:10000
+# record(fig, "PongAgent.mp4", frames; framerate = 40) do i
+#     step!(abmobs, 1)
+# end
+
+# df = load("./Pong/Data/last100_all.jld2")["single_stored_object"]
+
+# means = []
+# for i in 1:length(df)
+#     push!(means, mean(df[i]))
+# end
+# means_ = DataFrame(meanHits = means)
+
+# using CSV
+# CSV.write("./Pong/Data/meanHits_l100.csv", means_)
