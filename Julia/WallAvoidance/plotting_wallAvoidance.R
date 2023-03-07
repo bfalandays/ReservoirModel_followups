@@ -8,6 +8,10 @@ library(BAMBI)
 library(plotly)
 library(gplots)
 
+library(ComplexHeatmap)
+library(colorRamp2)
+library(RColorBrewer)
+
 
 setwd('/Users/jfalanda/Documents/GitHub/ReservoirModel_followups/Julia/WallAvoidance')
 
@@ -74,9 +78,6 @@ res = cor(plotdata)
 #   layout(yaxis = list(dtick = 1, tickmode="array"))
 # p 
 
-library(ComplexHeatmap)
-library(colorRamp2)
-library(RColorBrewer)
 p=Heatmap(
   res, # putting the top on top
   col = colorRamp2(seq(quantile(res, 0.01,na.rm = TRUE), quantile(res, 0.99,na.rm = TRUE), len = 11), rev(brewer.pal(11, "Spectral"))),
@@ -309,3 +310,102 @@ ggsave('Figs/hits_perturb.pdf', units="in",width=5,height=.5)
 #   -diff(mu) / sqrt( sum( s^2/n ) )
 # }
 # mu = c()
+
+
+#########
+##NO LEARN
+
+pos = as.data.table(read.csv("Data/pos_noLearn.csv"))
+spikes = as.data.table(read.csv("Data/spikes_noLearn.csv"))
+heading = as.data.table(read.csv("Data/heading_noLearn.csv"))
+heading$heading = zero_to_2pi(heading$heading)
+sens= as.data.table(read.csv("Data/sens_noLearn.csv"))
+eff = as.data.table(read.csv("Data/eff_noLearn.csv"))
+hits = as.data.table(read.csv("Data/hits_noLearn.csv"))
+
+t = seq(1,nrow(pos))
+pos$t = t
+heading$t = t
+sens$t = t
+eff$t = t
+hits$t = t
+
+ggplot(pos, aes(x = X1, y = X2)) + geom_path(alpha=pos$t/1000, arrow = arrow(length = unit(0.1, "inches")))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+ggsave('Figs/pos_noLearn.pdf', units="in",width=5,height=5)
+
+ggplot(heading, aes(x = t, y =heading))+geom_line()
+
+test = data.table(sens = sens$X1-sens$X2, heading = heading$heading, t = heading$t)
+ggplot(test, aes(x = sens, y = sin(heading))) +geom_path(alpha=test$t/1000)
+
+ggplot(sens, aes(x = X1, y = X2))+geom_path(alpha=test$t/1000)
+
+ggplot(hits, aes(x = t, y = cumsum(hits))) + geom_point()
+
+pca = prcomp(spikes)
+PC1 = pca$x[,1]
+PC2 = pca$x[,2]
+pcdata=data.table(cbind(PC1,PC2))
+pcdata$Time=seq(1,nrow(pcdata))#+4499
+
+fig <- plot_ly(pcdata, x = ~Time, y = ~PC1, z = ~PC2, type = "scatter3d", mode='lines',
+               line=list(width=10,color=~Time))
+fig
+
+###
+plotdata = t(as.matrix(spikes))
+rem=c()
+for(i in 1:nrow(plotdata)){
+  sd = sd(plotdata[,i])
+  if(sd == 0){
+    rem=c(rem, i)
+  }
+}
+plotdata = plotdata[,-rem]
+
+
+res = cor(plotdata)
+res[is.na(res)]=1
+# colnames(res)=seq(1,nrow(res))#+249
+# rownames(res)=seq(1,nrow(res))#+249
+# coul <- rich.colors(10)#colorRampPalette(brewer.pal(8,"Spectral"))(8)
+# heatmap(res,Colv = NA, Rowv=NA, col=coul, symm=T)
+
+# p <- plot_ly(z = res, type = "heatmap", colorscale = "Jet") %>%
+#   layout(yaxis = list(dtick = 1, tickmode="array"))
+# p 
+
+p=Heatmap(
+  res, # putting the top on top
+  #col = colorRamp2(seq(quantile(res, 0.01,na.rm = TRUE), quantile(res, 0.99,na.rm = TRUE), len = 11), rev(brewer.pal(11, "Spectral"))),
+  cluster_rows = TRUE, cluster_columns = TRUE,
+  name="Autocorrelation",
+  #show_heatmap_legend = FALSE,
+  #column_title = "No rasterisation",
+  use_raster = TRUE,
+  raster_resize_mat = TRUE,
+  raster_quality = 2)
+
+p
+
+meanspikes = data.table(pSpike=rowMeans(spikes), Time = seq(1,nrow(spikes)))
+ggplot(meanspikes, aes(x = Time, y = pSpike)) + geom_line()+
+  scale_y_continuous(name='Prop. Spiked')+
+  scale_x_continuous(limits=c(0,1000))
+ggsave('Figs/spikes_noLearn.pdf', units="in",width=4,height=1.5)
+#width = 800, height = 700
+
+ggplot(hits, aes(x = t, y = 1, fill = as.factor(hits))) + geom_tile(show.legend = FALSE)+ 
+  scale_fill_manual(values=c("white","black"))+
+  scale_y_continuous(limits=c(.5, 1.5), expand = c(0, 0))+
+  scale_x_continuous(limits=c(0, 1000), expand = c(0, 0),breaks=c(0,200,400,600,800))+
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background =element_rect(fill = "white"))
+ggsave('Figs/hits_noLearn.pdf', units="in",width=5,height=.5)
