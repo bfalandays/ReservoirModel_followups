@@ -292,8 +292,8 @@ heatmap!(ax, xs, ys, zs)
 #plot the timestep
 text!(ax_text, step_, position=(0,0),align = (:center, :center),fontsize=100)
 
-#plot the agent position over time
-scatterlines!(ax, positions; color = :black, markersize = 5, markeralpha = .01)
+# #plot the agent position over time
+# scatterlines!(ax, positions; color = :black, markersize = 5, markeralpha = .01)
 
 #plot the agent
 poly!(ax, agentLoc, color = :pink)
