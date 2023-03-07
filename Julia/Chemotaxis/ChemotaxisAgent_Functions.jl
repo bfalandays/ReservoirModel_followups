@@ -1,5 +1,6 @@
-using Agents, LinearAlgebra, InteractiveDynamics, GLMakie, Statistics, Meshes, Distributions, DataFrames, StatsBase
+using Agents, LinearAlgebra, InteractiveDynamics, GLMakie, Statistics, Meshes, Distributions, DataFrames, StatsBase, SimpleWeightedGraphs, Graphs, PDMats
 import GeometryBasics as gb
+import GraphPlot
 
 mutable struct Agent <: AbstractAgent
     id::Int
@@ -14,182 +15,149 @@ mutable struct Agent <: AbstractAgent
     tStep::Int64
 end
 
-global learn_on = 1
-global acts_neg = 0
-global agent_radius = .5
-global stim_radius = 1
+global learn_on = 1 #learning is on by default
+global acts_neg = 1 #whether or not activations can be < 0. true by default -- activations can take on any value
+global agent_radius = .5 # the radius of the agent
 
-global ts_pos = []
-global ts_hits = []
-global ts_spikes = []
-global ts_acts = []
-global ts_heading = []
-global ts_sens = []
-global ts_eff = []
+global ts_pos = [] #vector of agent positions over time for analysis
+global ts_spikes = [] # array of spikes over time for analysis. Will be timesteps (rows) X nnodes (cols)
+global ts_acts = [] #array of reservoir activations over time
+global ts_heading = [] #array of agent headings over time
+global ts_sens = [] #array of sensor activations over time
+global ts_eff = [] #array of effector activations over time
 
+#create a shortcut for initializing the agent. On the right of the "=", we create the full struct with all 10 variables, supplying default values for ones that don't change. Variables that we do change, we give a variable name (e.g. "pos" rather than supply a position)
+# on the left side of the "=", we give a name to the shortcut ("_Agent") and give it just the variables that we will input every time we create an agent -- id, position, heading, and the angles of the sensors
 _Agent(id, pos, heading, sens_angles) = Agent(id, pos, :agent, pos[1] + pos[2]im, 0, heading, sens_angles, ( agent_radius * ( cos(heading+deg2rad(sens_angles[1])) + sin(heading+deg2rad(sens_angles[1]))im), agent_radius * ( cos(heading-deg2rad(sens_angles[1])) + sin(heading-deg2rad(sens_angles[1]))im)), 0, 0)
-Stimulus(id, pos) = Agent(id, pos, :stim, pos[1] + pos[2]im, 1, 0, [], (0+0im,0+0im), 0)
 
 ### functions
-
 
 function move_agent(output_acts, agent,model)
 
     # translation
-    vel_centre = (output_acts[1]+output_acts[2])/2
-    pos_centre = vel_centre .* [cos(agent.heading), sin(agent.heading)]
-    # agent.pos[1] += pos_centre[1]
-    # agent.pos[2] += pos_centre[2]
+    vel_centre = (output_acts[1]+output_acts[2])/2 #get the mean of the two outputs, which gives the center of velocity vector
+    pos_centre = vel_centre .* [cos(agent.heading), sin(agent.heading)] # multiply the center of velocity by the cos and sin of heading to get the updated x- and y- position
     
     # rotation
-    omega = (output_acts[2]-output_acts[1])/(2*agent_radius)
+    omega = (output_acts[2]-output_acts[1])/(2*agent_radius) #rotation is determined by the relative speed of the two wheels and the radius of the agent, which gives the distance of the wheels from the center
     agent.heading += omega
 
-    randomRot = 0
-    newPos = [agent.pos[1] + pos_centre[1], agent.pos[2] + pos_centre[2]]
-    if newPos[1] > (15 - agent_radius)
-        newPos[1] = 15 - agent_radius
-        randomRot =1
-    end
-    if newPos[1] < agent_radius
-        newPos[1] = agent_radius
-        randomRot =1
-    end
-    if newPos[2] > 15 - agent_radius
-        newPos[2] = 15 - agent_radius
-        randomRot =1
-    end
-    if newPos[2] < agent_radius
-        newPos[2] = agent_radius
-        randomRot =1
-    end
-    if randomRot == 1
-        agent.heading += deg2rad(StatsBase.sample([-45,45])) #rand(Uniform(-deg2rad(45),deg2rad(45)))
-        agent.heading = rem2pi(agent.heading, RoundNearest)
-        push!(ts_hits, 1)
-    else
-        push!(ts_hits, 0)
-    end
-
-    move_agent!(agent, (newPos[1],newPos[2]),model)
-    # agent.pos = newPos
+    #move and rotate the agent -- agents.jl takes care of the torus situation
+    move_agent!(agent, (agent.pos[1] + pos_centre[1], agent.pos[2] + pos_centre[2]),model)
 
 end
 
-box_faces = [
-    Segment((0.0,0.0),(15.0, 0.0)),
-    Segment((15.0,0.0),(15.0, 15.0)),
-    Segment((15.0,15.0),(0.0, 15.0)),
-    Segment((0.0,15.0),(0.0, 0.0)),
-]
-maxDist = sqrt(15^2 + 15^2)
 
 function get_input_acts(agent)
 
+    # get position and heading of agent
     pos = agent.pos
     heading = agent.heading
-    sL_ang = agent.heading + deg2rad(agent.sens_angles[1])
-    sR_ang = agent.heading - deg2rad(agent.sens_angles[1])
 
+    #take the angles of the sensors and the radius of the agent to find out the position of the sensors
     sL_pos = (agent_radius * cos(heading+deg2rad(agent.sens_angles[1])) + pos[1], agent_radius * sin(heading+deg2rad(agent.sens_angles[1])) + pos[2])
     sR_pos = (agent_radius * cos(heading-deg2rad(agent.sens_angles[1])) + pos[1], agent_radius * sin(heading-deg2rad(agent.sens_angles[1])) + pos[2])
 
-    sL_endX = 100*(cos(sL_ang))
-    sL_endY = 100*(sin(sL_ang))
+    #get the probability density of the gradient function (a 2D gaussian function) at the location of each sensor
+    #then divide by the maximum probability density (right at the center) so that the input to the sensor is equal to one when it is at the center of the gradient
+    sL_p = pdf(gradient, [sL_pos[1],sL_pos[2]])/pdf(gradient, [25.0,25.0])
+    sR_p = pdf(gradient, [sR_pos[1],sR_pos[2]])/pdf(gradient, [25.0,25.0])
 
-    sL_end = sL_pos .+ (sL_endX, sL_endY)
-
-    sR_endX = 100*(cos(sR_ang))
-    sR_endY = 100*(sin(sR_ang))
-
-    sR_end = sR_pos .+ (sR_endX, sR_endY)
-
-    sL_seg = Segment(sL_pos,sL_end)
-    sR_seg = Segment(sR_pos,sR_end)
-
-    leftIntersect = nothing
-    for face in box_faces
-        leftIntersect = sL_seg ∩ face
-        if !isnothing(leftIntersect)
-            leftIntersect = coordinates(leftIntersect)
-            break
-        end
-    end
-    sL_dist = sL_pos .- leftIntersect
-    sL_dist = sqrt(sL_dist[1]^2 + sL_dist[2]^2)
-
-    rightIntersect = nothing
-    for face in box_faces
-        rightIntersect = sR_seg ∩ face
-        if !isnothing(rightIntersect)
-            rightIntersect = coordinates(rightIntersect)
-            break
-        end
-    end
-    sR_dist = sR_pos .- rightIntersect
-    sR_dist = sqrt(sR_dist[1]^2 + sR_dist[2]^2)
-
-    if noise > 0
-        sL_act = 1 - sL_dist/maxDist + rand(Uniform(-noise,noise))
-        sR_act = 1 - sR_dist/maxDist + rand(Uniform(-noise,noise))
+    #get the activations
+    if noise > 0 #if there is some noise in the activation function...
+        sL_act = sL_p + rand(Uniform(-noise,noise))
+        sR_act = sR_p + rand(Uniform(-noise,noise))
     else
-        sL_act = 1 - sL_dist/maxDist
-        sR_act = 1 - sR_dist/maxDist
+        #if we aren't adding noise, the sensor activation is just the normalized probability density of the gradient function at the position of the sensor
+        sL_act = sL_p
+        sR_act = sR_p
     end
 
-    if perturb == 1 && (model[1].tStep > 1000)
-        sens_acts = [sR_act*2, sL_act*2]
-    else
-        sens_acts = [sL_act, sR_act]
-    end
+    #put the left and right sensor activations into an array
+    sens_acts = [sL_act, sR_act]
         
+    #output
     sens_acts
 end
 
 function get_acts(acts,leak,spikes,wmat,input,input_wmat,targets)
     
+            # leak                 # sum input from sensors          # sum input from spikes in the reservoir
     acts = (acts .* (1-leak) .+ sum(input .* input_wmat, dims = 1)' .+ sum(spikes[] .* wmat[], dims = 1)')[:,1]
 
+    #set a floor of activation at 0 if this is turned on (it's off by default)
     if acts_neg == 0
         acts[acts .< 0] .= 0
     end
     
+    #get the list of current spikes
     prev_spikes = copy(spikes[])
+
+    #get the list of current spiking thresholds -- just double the current target value of the node
     thresholds = targets .* 2
+
+    #if the current activation of a node is above the threshold, it spikes and we set the corresponding value of the spike array to 1
     spikes[][acts .>= thresholds] .= 1
+    #for nodes that didn't spike, we set the corresponding value of the spike array to 0
     spikes[][acts .< thresholds] .= 0
     
+    #if the node spikes, then we subtract the threshold value of that node from the current activation -- energy dissipation
     acts[spikes[] .== 1] .-= thresholds[spikes[] .== 1]
-       
+    
+    #calculate the error for each node (current activation minus target value)
     errors = acts .- targets
     
+    # output
     [acts, spikes[], errors, prev_spikes]
 end
 
+
 function learning(learn_on,link_mat,spikes,prev_spikes, errors,wmat,targets)
     
-    active_neighbors=abs.(link_mat)
-    active_neighbors[prev_spikes .== 0,:] .= 0
-    d_wmat = copy(active_neighbors)
-    active_neighbors = sum(active_neighbors,dims=1)
+    active_neighbors=abs.(link_mat) #start with the link matrix (anatomical connectivity) so that nodes can't attribute error to any non-neighbors (meaning other nodes that aren't connected to the focal node)
+    active_neighbors[prev_spikes .== 0,:] .= 0 # for any node that didn't spike, we set all the outgoing connections in that row to 0
+    d_wmat = copy(active_neighbors) # set up a matrix of weight changes. "d" is for "delta" i.e. this will become a matrix of changes to the current weight matrix (of the same size as the weight matrix)
+    active_neighbors = sum(active_neighbors,dims=1) # for every node, get the number of incoming spikes (how many of my neighbors were active). dims=1 means we sum along columns
     
-    if learn_on==1
-        if sum(active_neighbors) >0
-            d_wmat = (errors' .* d_wmat)
-            d_wmat=(d_wmat ./ active_neighbors)
-            d_wmat[isinf.(d_wmat)] .= 0 
+    if learn_on==1 # assuming learning is turned on
+        if sum(active_neighbors) >0 # and there was at least one spike
+            d_wmat = (errors' .* d_wmat) # multiply errors by the matrix of weight changes. 
+            #The result is that every column (incoming connections to a node) will contain a 0 for rows corresponding to non-neighbors OR neighbors that didn't spike on the last iteration
+            #or the column will contain the error value of the current node for rows corresponding to neighbors that did spike. 
+            #in other words, the TOTAL error of each node will be assigned to every incoming connection along which a spike was propagated
+
+            d_wmat=(d_wmat ./ active_neighbors) # normalize the error for each node -- distributes error evenly across all incoming connections
+            #in the last step, the total error for each node was represented multiple times (e.g. if 10 neighbors spiked, 10 rows contained the total error)
+            #so here we need to divide each row by the number of neighbors that spiked, so that the sum of the column will be the total error for the focal node
+
+            d_wmat[isinf.(d_wmat)] .= 0 #deal with infinites and nans, since we may be dividing by zeros
             d_wmat[isnan.(d_wmat)] .= 0 
-            wmat[] .-= d_wmat
+
+            wmat[] .-= d_wmat # update the weight matrix by subtracting d_wmat (change in weight matrix)
+            #this means that if error was positive (activation was ABOVE target), nodes try to lower the weights
+            #if activation was negative, nodes will try to increase weights
         end
-            
+        
+        # for updating targets, take the error for each node and multiply by a learning rate
+        #targets are updated in the opposite direction from weights:
+        #if error was positive (activation > target), nodes increase the target
+        #if error was negative, nodes decrease the target
         targets .+= (errors .* lrate_targ) 
+
+        #in the last step, some targets may have gone below the minimum target value
+        #the assumption built in here is that all neurons need SOME positive input to survive -- they can't "prefer" to have 0 or negative input
+        #so we check for any targets that have gone below the floor, and reset that value to the floor.
         targets[targets .< targ_min] .= targ_min
     end
-            
+          
+    #output
     [wmat[], targets]
 end
 
+## the main stepping function that advances the model, calling on the functions defined above
 function model_step!(model)
+
+    #declare variables as global so they are available wherever we need them
     global acts
     global spikes
     global targets
@@ -199,17 +167,28 @@ function model_step!(model)
     global input_wmat
     global direction
 
+    #loop through all agents in the model. allagents() is an agents.jl function. Here there is only one agent so this doesn't matter much
     for agent in allagents(model)
         
+        #increment the timestep
         agent.tStep += 1
+
+        #get the next sensor input
         input = get_input_acts(agent)
+
+        #save that input in the array that is stored within the model, for later analysis
         model.inputs = input
 
+        #for reservoir nodes, get the current activation array, current spike array, current error array, and the spike array from the previous timestep 
         acts, spikes[], errors, prev_spikes = get_acts(acts,leak,spikes,wmat,input,input_wmat,targets)
 
+        #propogate the spikes of the reservoir to the output nodes
         output_acts = (sum(spikes[] .* output_wmat,dims = 1) ./ sum(output_wmat, dims=1))[1,:]
-        # output_acts[1] += rand(Uniform(0,.25))
-        # output_acts[2] += rand(Uniform(0,.25))
+        #the value of the output is normalized by the number of incoming connections to each output node, such that output is always in the range [0,1]
+        #the main purpose of this is to deal with potential imbalances in incoming connections to effectors, given that the links are assigned probabilistically
+        #e.g. one effector might have 22 incoming connections from the reservoir, while the other could have 19, and this might make arbitrary biases in movement that we want to avoid
+
+        #save the output acts in the array stored in the model, for later analysis
         model.outputs = output_acts
 
         #saving data
@@ -221,17 +200,20 @@ function model_step!(model)
         push!(ts_sens, Tuple(Float64(x) for x in input))
         push!(ts_eff, Tuple(Float64(x) for x in output_acts))
 
+        #perform learning on the reservoir weight matrix and targets
         wmat[], targets = learning(learn_on,link_mat,spikes,prev_spikes, errors,wmat,targets)
-        # model.weights = wmat
 
+        # move the agent
         move_agent(output_acts, agent,model)
 
     end
 
-
+    #store the mean activations, errors, and targets of the reservoir nodes for plotting
     model.mean_act = mean(acts)
     model.mean_err = mean(errors)
     model.mean_targ = mean(targets)
 
+    #increment the timestep variable that is stored in the model (above we did this for a variable stored in each agent)
+    #we don't really need to have both, but before I delete stuff I'll have to look at which one I'm actually using for plotting, lolz
     model.n += 1
 end
