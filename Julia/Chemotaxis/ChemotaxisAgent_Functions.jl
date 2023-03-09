@@ -94,8 +94,8 @@ function get_input_acts(agent)
     #     sL_act = sL_p
     #     sR_act = sR_p
     # end
-    sL_act = sL_p + sL_d*20 #sL_d #*10 + sL_p
-    sR_act = sR_p + sR_d*20 #*10 + sR_p
+    sL_act = sL_d*20 #sL_p +  #sL_d #*10 + sL_p
+    sR_act = sR_d*20 #sR_p +  #*10 + sR_p
 
     #put the left and right sensor activations into an array
     sens_acts = [sL_act, sR_act]
