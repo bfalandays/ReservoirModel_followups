@@ -135,7 +135,7 @@ function learning(learn_on,link_mat,spikes,prev_spikes, errors,wmat,targets)
             d_wmat=(d_wmat ./ active_neighbors)
             d_wmat[isinf.(d_wmat)] .= 0 
             d_wmat[isnan.(d_wmat)] .= 0 
-            wmat[] .-= d_wmat
+            wmat[] .-= d_wmat .* lrate_wmat
         end
             
         targets .+= (errors .* lrate_targ) 

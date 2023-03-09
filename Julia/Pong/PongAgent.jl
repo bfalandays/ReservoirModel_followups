@@ -12,7 +12,7 @@ global nnodes = 500
 global p_link = .1
 global leak = .25 #
 global leaktype = 1 #1 = leak a percentage, or 2 = leak a constant rate
-global lrate_wmat = .1
+global lrate_wmat = 1.0
 global lrate_targ = .1
 global targ_min = 1.0 
 global movement_amp = 100

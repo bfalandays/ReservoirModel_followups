@@ -8,7 +8,7 @@ nnodes = 200
 p_link = .1
 leak = .25 #
 leaktype = 1 #1 = leak a percentage, or 2 = leak a constant rate
-lrate_wmat = .01
+lrate_wmat = 1.0#1
 lrate_targ = .01
 targ_min = 1.0 
 sens_offset = 30
@@ -288,26 +288,26 @@ lines!(ax_network, reduce(vcat,edge_x), reduce(vcat,edge_y), color=(:black, .1))
 scatter!(ax_network, reduce(vcat, pos_x), reduce(vcat,pos_y); markersize = 20, color = colors)
 
 ########
-#fig
+fig
 
-frames = 1:plotIter
-record(fig, "RotatingAgent2.mp4", frames; framerate = 40) do i
-    step!(abmobs, 1)
-end
+# frames = 1:plotIter
+# record(fig, "RotatingAgent2.mp4", frames; framerate = 40) do i
+#     step!(abmobs, 1)
+# end
 
-#output data
-ts_heading_ = DataFrame(ts_heading = ts_heading)
-ts_spikes_ = DataFrame(ts_spikes)
-ts_acts_ = DataFrame(ts_acts)
-ts_sens_ = DataFrame(ts_sens)
-ts_eff_ = DataFrame(ts_eff)
-ts_stim_ = DataFrame(heading = ts_stim)
+# #output data
+# ts_heading_ = DataFrame(ts_heading = ts_heading)
+# ts_spikes_ = DataFrame(ts_spikes)
+# ts_acts_ = DataFrame(ts_acts)
+# ts_sens_ = DataFrame(ts_sens)
+# ts_eff_ = DataFrame(ts_eff)
+# ts_stim_ = DataFrame(heading = ts_stim)
 
-using CSV
-fill = ""
-CSV.write("./ObjectTracking/Data/heading" * fill * ".csv", ts_heading_)
-CSV.write("./ObjectTracking/Data/spikes" * fill * ".csv", ts_spikes_)
-CSV.write("./ObjectTracking/Data/acts" * fill * ".csv", ts_acts_)
-CSV.write("./ObjectTracking/Data/sens" * fill * ".csv", ts_sens_)
-CSV.write("./ObjectTracking/Data/eff" * fill * ".csv", ts_eff_)
-CSV.write("./ObjectTracking/Data/stim" * fill * ".csv", ts_stim_)
+# using CSV
+# fill = ""
+# CSV.write("./ObjectTracking/Data/heading" * fill * ".csv", ts_heading_)
+# CSV.write("./ObjectTracking/Data/spikes" * fill * ".csv", ts_spikes_)
+# CSV.write("./ObjectTracking/Data/acts" * fill * ".csv", ts_acts_)
+# CSV.write("./ObjectTracking/Data/sens" * fill * ".csv", ts_sens_)
+# CSV.write("./ObjectTracking/Data/eff" * fill * ".csv", ts_eff_)
+# CSV.write("./ObjectTracking/Data/stim" * fill * ".csv", ts_stim_)

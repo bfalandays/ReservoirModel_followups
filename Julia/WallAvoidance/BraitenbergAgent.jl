@@ -7,7 +7,7 @@ nnodes = 200
 p_link = .1
 leak = .25 #
 leaktype = 1 #1 = leak a percentage, or 2 = leak a constant rate
-lrate_wmat = .01
+lrate_wmat = 1.0
 lrate_targ = .01
 targ_min = 1.0 
 movement_amp = 10
