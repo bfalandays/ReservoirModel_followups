@@ -204,7 +204,7 @@ function model_step!(model)
         agent.tStep += 1
 
         input = get_input_acts(agent) #.* 20
-        input = [x <= 0.5 ? rand(Uniform(0,noise)) : x for x in input]
+        input = [x <= 0.0 ? rand(Uniform(0,noise)) : x for x in input]
 
         # if agent.tStep == 1
         #     agent.prev_inputs[1] = Tuple(get_input_acts(agent))
