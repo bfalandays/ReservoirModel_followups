@@ -13,6 +13,7 @@ mutable struct Agent <: AbstractAgent
     sens_Cpos::NTuple{2, ComplexF64}
     degree::Int64
     tStep::Int64
+    prev_inputs::Vector{NTuple{2,Float64}}
 end
 
 global learn_on = 1 #learning is on by default
@@ -28,19 +29,34 @@ global ts_eff = [] #array of effector activations over time
 
 #create a shortcut for initializing the agent. On the right of the "=", we create the full struct with all 10 variables, supplying default values for ones that don't change. Variables that we do change, we give a variable name (e.g. "pos" rather than supply a position)
 # on the left side of the "=", we give a name to the shortcut ("_Agent") and give it just the variables that we will input every time we create an agent -- id, position, heading, and the angles of the sensors
-_Agent(id, pos, heading, sens_angles) = Agent(id, pos, :agent, pos[1] + pos[2]im, 0, heading, sens_angles, ( agent_radius * ( cos(heading+deg2rad(sens_angles[1])) + sin(heading+deg2rad(sens_angles[1]))im), agent_radius * ( cos(heading-deg2rad(sens_angles[1])) + sin(heading-deg2rad(sens_angles[1]))im)), 0, 0)
+_Agent(id, pos, heading, sens_angles) = Agent(id, pos, :agent, pos[1] + pos[2]im, 0, heading, sens_angles, ( agent_radius * ( cos(heading+deg2rad(sens_angles[1])) + sin(heading+deg2rad(sens_angles[1]))im), agent_radius * ( cos(heading-deg2rad(sens_angles[1])) + sin(heading-deg2rad(sens_angles[1]))im)), 0, 0, [(0.0,0.0)])
 
 ### functions
+global xmean = 25.0
+global ymean = 25.0
+global spread = 15.0
+#defining the chemical gradient
+function gradient(x,y)
+    exp(-( (x-xmean)^2 + (y-ymean)^2 )/(2*spread^2))
+end
+
+function dx_gradient(x,y)
+    -((x-xmean)*exp((-(x-xmean)^2 - (y-ymean)^2) /(2*spread^2)))/(spread^2)
+end
+
+function dy_gradient(x,y)
+    -((y-ymean)*exp((-(x-xmean)^2 - (y-ymean)^2) /(2*spread^2)))/(spread^2)
+end
 
 function move_agent(output_acts, agent,model)
 
     # translation
     vel_centre = (output_acts[1]+output_acts[2])/2 #get the mean of the two outputs, which gives the center of velocity vector
-    pos_centre = vel_centre .* [cos(agent.heading), sin(agent.heading)] # multiply the center of velocity by the cos and sin of heading to get the updated x- and y- position
+    pos_centre = vel_centre .* [cos(agent.heading), sin(agent.heading)] .* movement_amp # multiply the center of velocity by the cos and sin of heading to get the updated x- and y- position
     
     # rotation
     omega = (output_acts[2]-output_acts[1])/(2*agent_radius) #rotation is determined by the relative speed of the two wheels and the radius of the agent, which gives the distance of the wheels from the center
-    agent.heading += omega
+    agent.heading += omega * movement_amp
 
     #move and rotate the agent -- agents.jl takes care of the torus situation
     move_agent!(agent, (agent.pos[1] + pos_centre[1], agent.pos[2] + pos_centre[2]),model)
@@ -58,20 +74,28 @@ function get_input_acts(agent)
     sL_pos = (agent_radius * cos(heading+deg2rad(agent.sens_angles[1])) + pos[1], agent_radius * sin(heading+deg2rad(agent.sens_angles[1])) + pos[2])
     sR_pos = (agent_radius * cos(heading-deg2rad(agent.sens_angles[1])) + pos[1], agent_radius * sin(heading-deg2rad(agent.sens_angles[1])) + pos[2])
 
-    #get the probability density of the gradient function (a 2D gaussian function) at the location of each sensor
-    #then divide by the maximum probability density (right at the center) so that the input to the sensor is equal to one when it is at the center of the gradient
-    sL_p = pdf(gradient, [sL_pos[1],sL_pos[2]])/pdf(gradient, [25.0,25.0])
-    sR_p = pdf(gradient, [sR_pos[1],sR_pos[2]])/pdf(gradient, [25.0,25.0])
+    #get the concentration of the gradient function (a 2D gaussian function) at the location of each sensor
+    sL_p = gradient(sL_pos[1],sL_pos[2])
+    sL_dx = dx_gradient(sL_pos[1],sL_pos[2])
+    sL_dy = dy_gradient(sL_pos[1],sL_pos[2]) 
+    sL_d = cos(heading)*sL_dx + sin(heading)*sL_dy
 
-    #get the activations
-    if noise > 0 #if there is some noise in the activation function...
-        sL_act = sL_p + rand(Uniform(-noise,noise))
-        sR_act = sR_p + rand(Uniform(-noise,noise))
-    else
-        #if we aren't adding noise, the sensor activation is just the normalized probability density of the gradient function at the position of the sensor
-        sL_act = sL_p
-        sR_act = sR_p
-    end
+    sR_p = gradient(sR_pos[1],sR_pos[2])
+    sR_dx = dx_gradient(sR_pos[1],sR_pos[2])
+    sR_dy = dy_gradient(sR_pos[1],sR_pos[2])
+    sR_d = cos(heading)*sR_dx + sin(heading)*sR_dy
+
+    # #get the activations
+    # if noise > 0 #if there is some noise in the activation function...
+    #     sL_act = sL_p + rand(Uniform(-noise,noise))
+    #     sR_act = sR_p + rand(Uniform(-noise,noise))
+    # else
+    #     #if we aren't adding noise, the sensor activation is just the normalized probability density of the gradient function at the position of the sensor
+    #     sL_act = sL_p
+    #     sR_act = sR_p
+    # end
+    sL_act = sL_p + sL_d*20 #sL_d #*10 + sL_p
+    sR_act = sR_p + sR_d*20 #*10 + sR_p
 
     #put the left and right sensor activations into an array
     sens_acts = [sL_act, sR_act]
@@ -83,7 +107,7 @@ end
 function get_acts(acts,leak,spikes,wmat,input,input_wmat,targets)
     
             # leak                 # sum input from sensors          # sum input from spikes in the reservoir
-    acts = (acts .* (1-leak) .+ sum(input .* input_wmat, dims = 1)' .+ sum(spikes[] .* wmat[], dims = 1)')[:,1]
+    acts = (acts .* (1-leak) .+ sum(input .* input_wmat, dims = 1)' .+ sum(spikes[] .* wmat[], dims = 1)')[:,1] #.+ rand(Normal(0,nodeNoise),nnodes)
 
     #set a floor of activation at 0 if this is turned on (it's off by default)
     if acts_neg == 0
@@ -126,7 +150,7 @@ function learning(learn_on,link_mat,spikes,prev_spikes, errors,wmat,targets)
             #or the column will contain the error value of the current node for rows corresponding to neighbors that did spike. 
             #in other words, the TOTAL error of each node will be assigned to every incoming connection along which a spike was propagated
 
-            d_wmat=(d_wmat ./ active_neighbors) # normalize the error for each node -- distributes error evenly across all incoming connections
+            d_wmat=(d_wmat ./ active_neighbors).*lrate_wmat # normalize the error for each node -- distributes error evenly across all incoming connections
             #in the last step, the total error for each node was represented multiple times (e.g. if 10 neighbors spiked, 10 rows contained the total error)
             #so here we need to divide each row by the number of neighbors that spiked, so that the sum of the column will be the total error for the focal node
 
@@ -154,6 +178,10 @@ function learning(learn_on,link_mat,spikes,prev_spikes, errors,wmat,targets)
     [wmat[], targets]
 end
 
+
+global prev_input = [0.0,0.0]
+global input_diff = [0.0,0.0]
+
 ## the main stepping function that advances the model, calling on the functions defined above
 function model_step!(model)
 
@@ -166,6 +194,8 @@ function model_step!(model)
     global wmat
     global input_wmat
     global direction
+    global input
+    global diffs
 
     #loop through all agents in the model. allagents() is an agents.jl function. Here there is only one agent so this doesn't matter much
     for agent in allagents(model)
@@ -173,14 +203,50 @@ function model_step!(model)
         #increment the timestep
         agent.tStep += 1
 
-        #get the next sensor input
-        input = get_input_acts(agent)
+        input = get_input_acts(agent) #.* 20
+        input = [x <= 0.5 ? rand(Uniform(0,noise)) : x for x in input]
+
+        # if agent.tStep == 1
+        #     agent.prev_inputs[1] = Tuple(get_input_acts(agent))
+        #     output_acts = [rand(Uniform(0,.2)), rand(Uniform(0,.2))]
+        #     move_agent(output_acts, agent,model)
+        # end
+
+        # #get the next sensor input
+        # if length(agent.prev_inputs) < 20
+        #     pushfirst!(agent.prev_inputs, Tuple(get_input_acts(agent)))
+        # else
+        #     pop!(agent.prev_inputs)
+        #     pushfirst!(agent.prev_inputs, Tuple(get_input_acts(agent)))
+        # end
+        # input = collect(agent.prev_inputs[1])
+
+        # for i in 1:(length(agent.prev_inputs)-1)
+        #     diff_ = [agent.prev_inputs[i][1] - agent.prev_inputs[i+1][1];agent.prev_inputs[i][2] - agent.prev_inputs[i+1][2]]
+        #     if i == 1
+        #         diffs = transpose(diff_)
+        #     else
+        #         diffs=vcat(diffs, transpose(diff_))
+        #     end
+        # end
+        # diffs = mean(diffs, dims=1)[1,:]
+        
+        # input_diff = diffs .* 1000 #.+ [rand(Normal(0,noise)),rand(Normal(0,noise))]
+        # input_diff = [x <= 0.05 ? rand(Uniform(0,noise)) : x for x in input_diff]
+
+        ##NOTE: I think the problem is that I'm calculating the derivative without accounting for distance moved, so if the agent stays still, it goes to 0
+        # alternatively, we could try to directly calculate the slope of the gradient along the heading direction of the agent
 
         #save that input in the array that is stored within the model, for later analysis
-        model.inputs = input
+        #current version below is giving the difference between input(t) and input(t-1) to the sensors -- a rough approximation of a derivative sensor
+        #to go back to just giving the raw concentrations, just change "input_diff" to "input" below, and in the next chunk make sure we are feeding "input" to the get_acts() function, rather than "input_diff"
+        model.inputs = input #input_diff #
 
         #for reservoir nodes, get the current activation array, current spike array, current error array, and the spike array from the previous timestep 
         acts, spikes[], errors, prev_spikes = get_acts(acts,leak,spikes,wmat,input,input_wmat,targets)
+        
+        #if we are trying to use the time derivative of sensor values, we feed the input_diff (difference between current and previous input) to the function below
+        #acts, spikes[], errors, prev_spikes = get_acts(acts,leak,spikes,wmat,input_diff,input_wmat,targets)
 
         #propogate the spikes of the reservoir to the output nodes
         output_acts = (sum(spikes[] .* output_wmat,dims = 1) ./ sum(output_wmat, dims=1))[1,:]

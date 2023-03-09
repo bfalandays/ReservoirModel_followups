@@ -375,7 +375,7 @@ for edge in Graphs.edges(G)
     push!(edge_y, pos_y[Graphs.dst(edge)])
 end
 
- Color node points by the number of connections.
+#Color node points by the number of connections.
 color_map = [spikes[node] for node in 1:nnodes]
 
 lines!(ax_network, reduce(vcat,edge_x), reduce(vcat,edge_y), color=(:black, .1))

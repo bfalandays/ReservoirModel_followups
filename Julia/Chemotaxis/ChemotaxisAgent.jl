@@ -2,27 +2,26 @@
 include("./Chemotaxis/ChemotaxisAgent_Functions.jl");
 
 ## params
-nnodes = 200 #number of nodes in the reservoir
-p_link = .1 # probability of a link between input node-reservoir, reservoir-reservoir, and reservoir-output
-leak = .25 #leak rate of nodes
-lrate_wmat = .01 # learning rate for reservoir weight matrix
-lrate_targ = .01 # learning rate for targets
-targ_min = 1.0 # the minimum target value
-movement_amp = 10 # an arbitrary gain on output to make sure agent doesn't move too slow. E.g. if output is 1, agent moves 1*movement_amp units forward
-input_amp = 20 # an arbitrary gain on input to make sure the agent gets moving. 
+global nnodes = 200 #number of nodes in the reservoir
+global p_link = .1 # probability of a link between input node-reservoir, reservoir-reservoir, and reservoir-output
+global leak = .25 #leak rate of nodes
+global lrate_wmat = 1.0 # learning rate for reservoir weight matrix
+global lrate_targ = .01 # learning rate for targets
+global targ_min = 1.0 # the minimum target value
+global movement_amp = .5 # an arbitrary gain on output to make sure agent doesn't move too slow. E.g. if output is 1, agent moves 1*movement_amp units forward
+global input_amp = 5 # an arbitrary gain on input to make sure the agent gets moving. 
 #The gradient concentration is very low in the corners, so if we start the agent there, they don't get enough input to cause any spikes in the network, and the agent just stays put.
 #hence the input_amp that you choose will depend upon how we set up the gradient
 
 global learn_on = 1 # learning is turned on
 global acts_neg = 1 #activations can take on negative values
-global noise = 0 # how much noise is added to sensor values
+global noise = 2#.005 # how much noise is added to sensor values
+global nodeNoise = 0#.01 #how much noise is added to reservoir node activations
 
-#defining the chemical gradient
-Σ = zeros(2, 2) #initialize a 2X2 covariance matrix
-Σ[1,1] = 200 #variance in each dimension set to 200
-Σ[2,2] = 200
-Σ=PDMat(Σ)
-global gradient = MvNormal([25.0,25.0], Σ) #gradient is defined as a 2D gaussian distribution
+#parameters for the 2D gaussian chemical gradient
+global xmean = 25.0
+global ymean = 25.0
+global spread = 15.0
 
 #getting a heatmap to plot the gradient
 global xs = collect(0:.1:50) #initialize a list of x values to sample from 0 to 50 (the range of the space)
@@ -32,11 +31,12 @@ global zs = zeros(length(xs), length(ys)) #matrix of z values for the heatmap --
 #iterate through the x and y values, get the probability density of the gradient function at each point, and fill in the z matrix
 for col in 1:length(xs)
     for row in 1:length(ys)
-        p = pdf(gradient, [xs[col],ys[row]])
+        #p = pdf(gradient, [xs[col],ys[row]])
+        p = gradient(xs[col],ys[row])
         zs[row,col]=p
     end
 end
-zs= zs ./ maximum(zs) # normalize the z matrix so that the max value is 1
+#zs= zs ./ maximum(zs) # normalize the z matrix so that the max value is 1
 
 #### 
 
@@ -76,7 +76,12 @@ global wmat= Observable(zeros((nnodes,nnodes)))
 for row in range(1,size(wmat[])[1]) 
     for col in range(1,size(wmat[])[2]) 
         if link_mat[row,col] == 1 #if there is an anatomical link...
-            wmat[][row,col] =  rand(Normal(1,.1))
+            # if StatsBase.sample([-1,1],Weights([.25,.75])) == -1
+            #     wmat[][row,col] = rand(Normal(-2.0,.1))
+            # else
+            #     wmat[][row,col] = rand(Normal(2.0,.1))
+            # end
+            wmat[][row,col] = rand(Normal(2.0,.1))
             #initialize a weight by drawing from a normal distribution with mean 1 and sd .1
         end
     end
@@ -103,6 +108,7 @@ global spikes = Observable(zeros(nnodes))
 global targets = repeat([targ_min],nnodes)
 global acts = zeros(nnodes)
 global inputs = zeros(length(sens_degrees))
+global input_diff = zeros(length(sens_degrees))
 global output_acts = zeros(2)
 
 # set up initial values for the timestep, mean activations, errors, and targets of the reservoir nodes
@@ -119,6 +125,7 @@ model = ABM(Agent, ContinuousSpace((50,50), periodic = true); properties = Dict(
     :mean_err => mean_err,
     :mean_targ => mean_targ,
     :inputs => inputs,
+    :input_diff => input_diff,
     :outputs => output_acts,
     :weights => wmat,
 ),
@@ -176,7 +183,7 @@ weights_layout = fig[3,end] = GridLayout()
 #define the axis within the sensor layout
 ax_sensors = Axis(sensors_layout[1,1];backgroundcolor = :lightgrey, ylabel = "Value", xticks = (1:length(sens_degrees)))
 xlims!(ax_sensors, (0,length(sens_degrees)+1))
-ylims!(ax_sensors, (0,1.2))
+ylims!(ax_sensors, (-2,2))
 
 #define the axis within with mean activations layout
 ax_acts = Axis(acts_layout[1,1]; backgroundcolor = :lightgrey, ylabel = "Value", xticks = (1:3, ["meanActs","meanErrs", "meanTargs"]), xticklabelrotation = pi/8)
