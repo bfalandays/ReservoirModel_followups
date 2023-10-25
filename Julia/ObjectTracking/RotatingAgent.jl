@@ -1,6 +1,6 @@
 using SimpleWeightedGraphs, Graphs
 import GraphPlot
-include("./ObjectTracking/RotatingAgent_Functions.jl");
+include("./Julia/ObjectTracking/RotatingAgent_Functions.jl");
 
 ## params
 plotIter = 3600*2
@@ -243,7 +243,7 @@ end
 text!(ax_text, step_, position=(0,0),align = (:center, :center),fontsize=100)
 
 ####
-poly!(ax, Circle(GLMakie.Point2f(1.5, 1.5), agent_radius), color = :pink)
+poly!(ax, gb.Circle(GLMakie.Point2f(1.5, 1.5), agent_radius), color = :pink)
 
 scatter!(ax, sL ; markersize = 20, color = :red)
 scatter!(ax, sR ; markersize = 20, color = :blue)

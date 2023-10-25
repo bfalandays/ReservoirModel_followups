@@ -1,6 +1,6 @@
 using SimpleWeightedGraphs, Graphs
 import GraphPlot
-include("./WallAvoidance/BraitenbergAgent_Functions.jl");
+include("./Julia/WallAvoidance/BraitenbergAgent_Functions.jl");
 
 ## params
 nnodes = 200
@@ -134,10 +134,10 @@ mdata = [:mean_act, :mean_err, :mean_targ, :inputs, :outputs]
 params = Dict(   
 )
 
-fig, ax, abmobs = abmplot(model; 
+fig, ax, abmobs = Agents.abmplot(model; 
     dummystep, model_step!,
     add_controls = true, enable_inspection = true,
-    adata, mdata, figure = (; resolution = (2400,1600))
+    adata, mdata, figure = (; resolution = (1200,800))
 )
 
 sensors_layout = fig[1,end+1] = GridLayout()
@@ -199,7 +199,7 @@ agentLoc = @lift begin
     # y = getindex(b.pos[2])
     # z = (x,y)
     # z
-    Circle(GLMakie.Point2f(pos), agent_radius)
+    gb.Circle(GLMakie.Point2f(pos), agent_radius)
 end
 
 positions = @lift begin
