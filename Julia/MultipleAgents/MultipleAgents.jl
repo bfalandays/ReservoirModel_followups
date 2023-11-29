@@ -1,44 +1,80 @@
 # TO DO: 
-# - make a center-surround effect whereby sensory nodes activate their neighbors one over and inhibit their neighbors 2 over, in order to make the other agent pop out from the background.
-# - make elastic collisions better
-# - try 4 or more neighbors
-# - try going back to L/R sensor arrays, then padding each with 0s to make them the same length as the total unique angles, then averaging at each position. This might diminish the activation at the edges, and emphasize the region that is covered by both eyes. Then maybe kernal or mexican hat on this?
-# - try separating the two wall sensors and an array of sensors that only respond to the other agent(s)
-# - try 3 effector nodes for left, right, and forward, so that speed can be controlled independently of turning
+# - in the VENstyle model, try giving agents another effector for slowing down.
+# - check on how I'm implementing spatiality again
+# - figure out why activation values don't decay even when agents are only getting minimal input from noise. 
+
+# NOTES:
 
 using SimpleWeightedGraphs, Graphs
 import GraphPlot
 include("./Julia/MultipleAgents/MultipleAgents_Functions.jl");
 
-params = Dict(
+seed = 123
+set.seed(seed)
+
+props = Dict(
     :n => 0,
-    :nnodes => 500,
+
+    :agent_radius => .5,
+    :wheel_radius => .25,
+    :sens_angles => [vcat(sort(collect(range(start=-60,stop=60,step=4)).+30,rev=true)), vcat(sort(collect(range(start=-60,stop=60,step=4)).-30,rev=true))],
+    #:sens_angles => [vcat(sort(collect(range(start=-90,stop=90,step=4)).+45,rev=true)), vcat(sort(collect(range(start=-90,stop=90,step=4)).-45,rev=true))],
+    #:sens_angles => [vcat(sort(collect(range(start=-20,stop=20,step=.5)),rev=true))],
+    :wall_sens_angles => [-45,45],
+
+    :nnodes => 250,
+    :num_effectors => 2, # 2 for left/right, 3 for left/right/forward
     :p_link => .1,
-    :leak => .25,
-    :leaktype => 1,
-    :lrate_wmat => .10,# 1.0,
+    :lrate_wmat => .10,# .10,
     :lrate_targ => .01, #.01
     :targ_min => 1.0,
-    :wheel_radius => .25,
-    :input_amp => 10,
-    :wall_sens_angles => [-45,45],
-    :sens_angles => vcat(sort(collect(range(start=-90,stop=90,step=4)),rev=true)),#vcat(sort(collect(range(start=-60,stop=60,step=4)).+30,rev=true), sort(collect(range(start=-60,stop=60,step=4)).-30,rev=true)),#vcat(sort(collect(range(start=-90,stop=90,step=1)),rev=true)),
-    :sens_anglesL => vcat(sort(collect(range(start=-90,stop=90,step=4)),rev=true))[1:23],#vcat(sort(collect(range(start=-60,stop=60,step=4)).+30,rev=true)),
-    :sens_anglesR => vcat(sort(collect(range(start=-90,stop=90,step=4)),rev=true))[24:end],#vcat(sort(collect(range(start=-60,stop=60,step=4)).-30,rev=true)),
     :learn_on => 1,
-    :noise => 0.0,
-    :agent_radius => .5,
     :acts_neg => 1,
+    :leak => .25,
+    :leaktype => 1,
+
+    :input_type => "random", # "random" or "spatial"
+    :res_type => "smallworld", # "random", "spatial", "smallworld" or "scalefree"
+    :output_type => "random", # "random" or "spatial"
+
     :visual_coupling => 1,
-    :physical_coupling => 1
+    :physical_coupling => 1,
+    :collision_heading_change => 1,
+    :sens_agent_dist => 0,
+    :sens_walls => 1,
+    :sensory_scaling => true,
+    :network_noise => 0.0,
+    :sensory_noise => 0.1,
+    
+    :VENstyle => true,
+    :topSpeed => .2, #2.0,
+    :accelTime => 5, #2.0,
+    :topHeadingRate => π/8,
+    :HaccelTime => 5, #2.0,
+    
+    :dt => 1,
+
+    :periodic => true,
+    :space_size => 15,
+    :n_agents => 5,
+
     )
+    if props[:sens_walls] == 1 && props[:periodic] == false && props[:visual_coupling] == 1
+        n_inputs = length(reduce(vcat,props[:sens_angles])) + 2
+    elseif props[:sens_walls] == 0
+        n_inputs = length(reduce(vcat,props[:sens_angles]))
+    else
+        n_inputs = 2
+    end
+    props[:input_amp] = props[:nnodes]*props[:p_link]/2 #* n_inputs/64
 
 ####
 
 model = ABM(Agent, 
-ContinuousSpace((15,15), 
-periodic = false); 
-properties = params,
+ContinuousSpace((props[:space_size],props[:space_size]), 
+periodic = props[:periodic]); 
+properties = props,
+rng = rng = Random.MersenneTwister(seed),
 scheduler = Schedulers.fastest
 )
 
@@ -49,20 +85,19 @@ box_faces = [
         Segment((0.0,model.space.extent[1]),(0.0, 0.0)),
     ]
 maxDist = sqrt(model.space.extent[1]^2 + model.space.extent[1]^2)
-if string(model.space)[1:8] != "periodic"
+if model.periodic == true
     maxDist /= 2
 end
 
-n_agents = 3
 locs=[]
-for i in 1:n_agents
-    newPos = (rand(Uniform(model.agent_radius + .2 ,model.space.extent[1] - model.agent_radius - .2)), rand(Uniform(model.agent_radius + .2,model.space.extent[2] - model.agent_radius - .2)))
+for i in 1:model.n_agents
+    newPos = (rand(abmrng(model),Uniform(model.agent_radius + .2 ,model.space.extent[1] - model.agent_radius - .2)), rand(abmrng(model),Uniform(model.agent_radius + .2,model.space.extent[2] - model.agent_radius - .2)))
     if i == 1
         push!(locs, newPos)
     else
         minDist = minimum([sqrt((newPos[1] - locs[j][1])^2 + (newPos[2] - locs[j][2])^2) for j in 1:length(locs)])
-        while minDist < model.agent_radius + .2
-            newPos = (rand(Uniform(model.agent_radius + .2 ,model.space.extent[1] - model.agent_radius - .2)), rand(Uniform(model.agent_radius + .2,model.space.extent[2] - model.agent_radius - .2)))
+        while minDist < 2*model.agent_radius + .2
+            newPos = (rand(abmrng(model),Uniform(model.agent_radius + .2 ,model.space.extent[1] - model.agent_radius - .2)), rand(abmrng(model),Uniform(model.agent_radius + .2,model.space.extent[2] - model.agent_radius - .2)))
             minDist = minimum([sqrt((newPos[1] - locs[j][1])^2 + (newPos[2] - locs[j][2])^2) for j in 1:length(locs)])
         end
         push!(locs, newPos)
@@ -72,47 +107,16 @@ for i in 1:n_agents
             model,
             nextid(model),
             locs[i],
-            rand(Uniform(0, 2pi))
+            rand(abmrng(model),Uniform(0, 2pi))
         ),
         model
     )
 end
 
-#### plotting
-adata = [:pos, :heading, :inputs, :acts, :targets, :spikes, :inhibitory_nodes, :output_acts, :wmat, :collisions]
-mdata = [:n, :nnodes, :p_link, :leak, :leaktype, :lrate_wmat, :lrate_targ, :targ_min, :wheel_radius, :input_amp, :sens_angles, :learn_on]
-
-fig, mainAx, abmobs = Agents.abmplot(model; 
-    dummystep, model_step!,
-    add_controls = true, enable_inspection = true,
-    adata, mdata, figure = (; resolution = (600,600))
-)
-
-## PLOTTING AGENTS IN SPACE
-# get data for plotting as observables
-positionData = @lift begin
-    # the output has a row for every agent, and each row has a circle for plotting the body, and the positions of the left and right sensor, respectively, for plotting as points
-    # a = $(abmobs.adf)
-    # # filter the data to only the latest step
-    # b = $(a)[a.step .== maximum(a.step), :]
-
-    positions = $(abmobs.adf).pos[end-(n_agents-1):end]
-    headings = $(abmobs.adf).heading[end-(n_agents-1):end]
-
-    # positions = a.pos
-    # headings = a.heading
-    get_leftSensPos(pos, heading) = (pos[1] + (model.agent_radius * cos(heading + deg2rad(model.wall_sens_angles[1]))), pos[2] + (model.agent_radius * sin(heading + deg2rad(model.wall_sens_angles[1]))))
-    get_rightSensPos(pos, heading) = (pos[1] + (model.agent_radius * cos(heading - deg2rad(model.wall_sens_angles[1]))), pos[2] + (model.agent_radius * sin(heading - deg2rad(model.wall_sens_angles[1]))))
-    a = [[gb.Circle(GLMakie.Point2f(positions[i]), model.agent_radius), get_leftSensPos(positions[i], headings[i]), get_rightSensPos(positions[i], headings[i])] for i in 1:nagents(model)]
-    b = reduce(hcat, a)
+if model.n_agents == 2
+    include("./Julia/MultipleAgents/TwoAgents_Plotting.jl");
+else
+    include("./Julia/MultipleAgents/MultipleAgents_Plotting.jl");
 end
 
-[poly!(mainAx, @lift($positionData[1,i]), color = :black) for i in 1:nagents(model)]
-[scatter!(mainAx, @lift($positionData[2,i]) ; markersize = 10, color = :red) for i in 1:nagents(model)]
-[scatter!(mainAx, @lift($positionData[3,i]) ; markersize = 10, color = :blue) for i in 1:nagents(model)]
-
-# scatterlines!(ax, positions; color = :black, markersize = 5, markeralpha = .01)
-
-
-## interactive fig
-fig
+interactive_plot(model)

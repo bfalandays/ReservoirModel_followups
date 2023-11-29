@@ -1,6 +1,6 @@
 function interactive_plot(model)
     #### plotting
-    adata = [:pos, :heading, :inputs, :acts, :targets, :spikes, :inhibitory_nodes, :output_acts, :wmat, :collisions]
+    adata = [:pos, :accel, :velWheels, :accelWheels, :friction, :speed, :headingRate, :heading, :inputs, :acts, :targets, :spikes, :inhibitory_nodes, :output_acts, :wmat, :collisions]
     mdata = [:n, :nnodes, :p_link, :leak, :leaktype, :lrate_wmat, :lrate_targ, :targ_min, :wheel_radius, :input_amp, :sens_angles, :learn_on]
 
     fig, mainAx, abmobs = Agents.abmplot(model; 
@@ -8,6 +8,12 @@ function interactive_plot(model)
         add_controls = true, enable_inspection = true,
         adata, mdata, figure = (; resolution = (1800,600))
     )
+
+    step_ = @lift begin
+        a = round($(abmobs.mdf).step[end] * model.dt, digits = 1)
+        string(a)
+    end
+    text!(mainAx, step_, position=(model.space.extent[1]/2,model.space.extent[2]/2),align = (:center, :center),fontsize=20)
 
     ## PLOTTING AGENTS IN SPACE
     # get data for plotting as observables
@@ -37,7 +43,7 @@ function interactive_plot(model)
     sensData = @lift begin
         $(abmobs.adf).inputs[end-1:end]
     end
-    sensColors=reduce(vcat,[:red, :blue, repeat([:black],length(unique(model.sens_angles)))])
+    sensColors=reduce(vcat,[:red, :blue, repeat([:black],length(reduce(vcat,model.sens_angles)))])
     #sensColors=reduce(vcat,[:red, :blue, repeat([:black],length(model.sens_anglesL)*2)])
     #sensColors= [:red, :blue, :black]
     #sensColors = :black
@@ -46,20 +52,52 @@ function interactive_plot(model)
 
     ## PLOTTING EFFECTORS
     effectors_layout = subLayout[1:2,2]
-    ax_effectors = [Axis(effectors_layout[i,1]; ylabel = "Value", xticks = (1:2, ["Left", "Right"])) for i in 1:2]
-    [xlims!(ax_effectors[i], (0,3)) for i in 1:2]
-    [ylims!(ax_effectors[i], (0,1)) for i in 1:2]
-    effectorData = @lift begin
-        $(abmobs.adf).output_acts[end-1:end]
+    
+
+    if model.VENstyle == true
+        ax_effectors = [Axis(effectors_layout[i,1]; ylabel = "Value", xticks = (1:3, ["S", "A", "F"])) for i in 1:2]
+        [xlims!(ax_effectors[i], (0,4)) for i in 1:2]
+        [ylims!(ax_effectors[i], (0,model.topSpeed)) for i in 1:2]
+        effectorData = @lift begin
+            v = $(abmobs.adf).speed[end-1:end]
+            a = $(abmobs.adf).accel[end-1:end] #./ model.max_accel
+            f =  $(abmobs.adf).friction[end-1:end]
+            #f = [f[i][1] / model.friction for i in 1:2]
+            f = [f[i][1] for i in 1:2]
+
+
+            res = [reduce(vcat,(v[i],a[i],f[i])) for i in 1:2]
+
+        end
+        barplot!(ax_effectors[1], @lift($effectorData[1]); color = [:red, :blue,:black], strokecolor = :black, strokewidth = 1)
+        barplot!(ax_effectors[2], @lift($effectorData[2]); color = [:red, :blue,:black], strokecolor = :black, strokewidth = 1)
+    
+    elseif model.VENstyle == false && model.num_effectors == 2
+         
+        ax_effectors = [Axis(effectors_layout[i,1]; ylabel = "Value", xticks = (1:2, ["L", "R"])) for i in 1:2]
+        [xlims!(ax_effectors[i], (0,3)) for i in 1:2]
+        [ylims!(ax_effectors[i], (0,1)) for i in 1:2]
+        effectorData = @lift begin
+            $(abmobs.adf).output_acts[end-1:end]
+        end
+        barplot!(ax_effectors[1], @lift($effectorData[1]); color = [:red, :blue], strokecolor = :black, strokewidth = 1)
+        barplot!(ax_effectors[2], @lift($effectorData[2]); color = [:red, :blue], strokecolor = :black, strokewidth = 1)
+    elseif model.VENstyle == false && model.num_effectors == 3 
+       ax_effectors = [Axis(effectors_layout[i,1]; ylabel = "Value", xticks = (1:3, ["L", "R", "F"])) for i in 1:2]
+        [xlims!(ax_effectors[i], (0,4)) for i in 1:2]
+        [ylims!(ax_effectors[i], (0,1)) for i in 1:2]
+        effectorData = @lift begin
+            $(abmobs.adf).output_acts[end-1:end]
+        end
+        barplot!(ax_effectors[1], @lift($effectorData[1]); color = [:red, :blue, :black], strokecolor = :black, strokewidth = 1)
+        barplot!(ax_effectors[2], @lift($effectorData[2]); color = [:red, :blue, :black], strokecolor = :black, strokewidth = 1)
     end
-    barplot!(ax_effectors[1], @lift($effectorData[1]); color = [:red, :blue], strokecolor = :black, strokewidth = 1)
-    barplot!(ax_effectors[2], @lift($effectorData[2]); color = [:red, :blue], strokecolor = :black, strokewidth = 1)
 
     ## PLOTTING SUMMARY
     summary_layout = subLayout[1:2,3]
     ax_summary = [Axis(summary_layout[i,1]; ylabel = "Value", xticks = (1:3, ["meanActs","meanErrs", "meanTargs"]), xticklabelrotation = pi/8) for i in 1:2]
     [xlims!(ax_summary[i], (0,4)) for i in 1:2]
-    [ylims!(ax_summary[i], (-3,3)) for i in 1:2]
+    [ylims!(ax_summary[i], (-3,8)) for i in 1:2]
     summaryData = @lift begin
         meanActs = mean.($(abmobs.adf).acts[end-1:end])
         meanTargs = mean.($(abmobs.adf).targets[end-1:end])
@@ -82,6 +120,8 @@ function interactive_plot(model)
     # end
     # G = [SimpleWeightedDiGraph(ag.link_mat) for ag in allagents(model)]
     # pos_x, pos_y = GraphPlot.spring_layout.(G)
+    # #pos_x, pos_y = GraphPlot.circular_layout.(G)
+
     # # Create plot points
     # edges = []
     # for i in 1:2
@@ -107,18 +147,18 @@ function interactive_plot(model)
     # hist!(ax_weights[2], @lift($weightsData[2]))
 
     ## PLOTTING TIMESTEP
-    text_layout = fig[2, end-1]
-    ax_text = Axis(text_layout[1,1])
-    xlims!(ax_text, (-1,1))
-    ylims!(ax_text, (-1,1))
-    step_ = @lift begin
-        a = $(abmobs.mdf).step[end]
-        string(a)
-    end
-    text!(ax_text, step_, position=(0,0),align = (:center, :center),fontsize=100)
+    # text_layout = fig[2, end-1]
+    # ax_text = Axis(text_layout[1,1])
+    # xlims!(ax_text, (-1,1))
+    # ylims!(ax_text, (-1,1))
+    # step_ = @lift begin
+    #     a = $(abmobs.mdf).step[end]
+    #     string(a)
+    # end
+    # text!(ax_text, step_, position=(0,0),align = (:center, :center),fontsize=100)
 
     ## PLOTTING COLLISIONS
-    collision_layout = fig[2,end]
+    collision_layout = fig[2,end-1]
     ax_collisions = Axis(collision_layout[1,1])
     collisions = @lift begin
         a = $(abmobs.adf)
