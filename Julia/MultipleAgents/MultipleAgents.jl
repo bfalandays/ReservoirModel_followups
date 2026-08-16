@@ -3,7 +3,57 @@
 # - check on how I'm implementing spatiality again
 # - figure out why activation values don't decay even when agents are only getting minimal input from noise. 
 
-# NOTES:
+#= NOTES: (8/15/26)
+    The "VENstyle" model is based on how Bill Warren's lab (the VEN lab) models visual control of locomotion. 
+    I'm not sure if I ever landed on super reliable settings for that version, so I'd consider it "experimental",
+    but it does seem to produce coordinated motion sometimes. However, the published version of the Braitenberg model 
+    (:num_effectors = 2, :VENstyle = false) is simpler and more robustly produces coordinated motion, so that's 
+    probably the best starting point.
+    
+    But I'm just going to describe some of the idea behind the VENstyle version, because it could be cool if that worked eventually:
+    The VENstyle model forces there to be 3 output effectors (overriding the num_effectors setting). 
+    One output controls acceleration in the heading direction. The difference between the other two outputs
+    controls angular acceleration. Both fight against friction, which is in turn a function of a friction coefficient
+    and the current linear/angular speed.
+    
+    I don't think the current version totally makes sense, because I have "topSpeed" and "topHeadingRate"
+    parameters in addition to friction, which seems redundant. I have a vague memory now, but I think I was
+    aiming to eliminate the topSpeed and topHeadingRate params, because they're kinda arbitrary, and I wanted to see if adding
+    friction could prevent the agents from potentially going to insane speeds. 
+
+    (side note: I also messed around a version that was almost the same as the published Braitenberg-style agent, but which
+    used 3 effectors instead of 2. In the original 2-effector version, each output controls the speed of one wheel. Differences 
+    in speed between the two wheels causes rotation, and the average of the two wheel speeds determines forward speed.
+    In the 3-effector version, one output controls forward speed and the other two outputs do rotation. The 3-effector
+    version also works seems to work fine.)
+=#
+
+#= Notes on some other params that probably need explaining:
+    - :visual_coupling determines whether agents sense each other (1) or only see the walls, but not other agents (0)
+    - :physical_coupling determines whether agents collide with each other (1) the same way as they do with walls, or call pass through each other (0)
+    - :collision_heading_change determines whether, if agents collide, their headings get mirrored in the same way as when they hit a wall (1), or whether their heading is unaffected by agent-to-agent collisions (0)
+    - :sens_agent_dist determines whether a sensory nodes are sensitive to distance (1), meaning it is less-strongly activated the further away the sensed-object (another agent or the wall) is, or whether the node just outputs a binary response when another that node's ray intersects with anything (0). I don't think the distance version makes sense, I think I was just messing around 
+    - :sensory_scaling normalizes the sensory nodes' activity (1) or applies no transformation (0). I think the rationale here was to work in conjunction with :sens_agent_dist = 1, because when distance matters, sometimes there was very little sensory input and agents would freeze.
+    - :sensory_noise and :network_noise add noise to the sensory nodes or the reservoir nodes, respectively. Noise also helps prevent freezing, but sensory noise seems to be enough.
+=#
+
+#= Couple other miscellaneous notes:
+    - This model actually has 2 different kinds of sensor arrays active simultaneously. In the paper,
+      I used different sensor styles for the object-tracking model and the braitenberg model. 
+      For the object-tracking agent, each "eye" was an array of sensors pointing out at different angles, 
+      like a simple retina. For the braitenberg agent, each eye was a single sensor.
+      It seems like I just mashed them together here, using the object-tracking-style array for sensing other agents,
+      and the 2-sensor braitenberg-style array for sensing walls. That seems kinda weird, but there are issues if you
+      just use the object-tracking style array, because the sensors' rays are constantly intersecting with a wall, so if 
+      an agent passes in front (and the sensor output is binary), then there's no change in the sensor. So basically, other
+      agents become mostly invisible to each other. To deal with that, you have to make sensors distance-sensitive, such that
+      when agent A passes between agent B and the wall, the sensor becomes more strongly activated. But of course, the distance
+      sensitivity thing adds further complications. So just wanted to explain that idiosyncracy of this model.
+    
+    - I never tested this systematically, but from visual inspection, I remember thinking that using a small-world
+      network structure for the reservoir resulted in coordinated motion more consistently and more quickly. And from running it a 
+      few times now, it's still looking that way to me. So that could be something interesting to explore!
+=#
 
 using SimpleWeightedGraphs, Graphs
 import GraphPlot
@@ -23,7 +73,7 @@ props = Dict(
     :wall_sens_angles => [-45,45],
 
     :nnodes => 250,
-    :num_effectors => 2, # 2 for left/right, 3 for left/right/forward
+    :num_effectors => 3, # 2 for left/right, 3 for left/right/forward
     :p_link => .1,
     :lrate_wmat => .10,# .10,
     :lrate_targ => .01, #.01
@@ -46,7 +96,7 @@ props = Dict(
     :network_noise => 0.0,
     :sensory_noise => 0.1,
     
-    :VENstyle => true,
+    :VENstyle => false, # the params below in this block only matter if :VENstyle = true
     :topSpeed => .2, #2.0,
     :accelTime => 5, #2.0,
     :topHeadingRate => π/8,
@@ -54,7 +104,7 @@ props = Dict(
     
     :dt => 1,
 
-    :periodic => false,
+    :periodic => false, # when periodic is true, the space is a torus and there are no walls to bounce off
     :space_size => 15,
     :n_agents => 3,
 
