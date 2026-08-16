@@ -54,9 +54,9 @@ props = Dict(
     
     :dt => 1,
 
-    :periodic => true,
+    :periodic => false,
     :space_size => 15,
-    :n_agents => 5,
+    :n_agents => 3,
 
     )
     if props[:sens_walls] == 1 && props[:periodic] == false && props[:visual_coupling] == 1
