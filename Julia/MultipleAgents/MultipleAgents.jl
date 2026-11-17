@@ -57,7 +57,7 @@
 
 using SimpleWeightedGraphs, Graphs
 import GraphPlot
-include("./Julia/MultipleAgents/MultipleAgents_Functions.jl");
+include("./MultipleAgents_Functions.jl");
 
 seed = 123
 set.seed(seed)
